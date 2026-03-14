@@ -305,6 +305,8 @@ def find_main_vein_endpoints(G, leafImage):
     plt.savefig('main_vein_endpoints.png', dpi=150)
     plt.show()
 
+
+
     return top_pt, bottom_pt
 
 top_pt, bottom_pt = find_main_vein_endpoints(G, leafImage)
