@@ -18,7 +18,7 @@ import sys
 import numpy as np
 import cv2
 from pathlib import Path
-
+from PIL import Image
 
 # ── Background type detection ─────────────────────────────────────────────────
 
@@ -185,6 +185,7 @@ def isolate_leaf(input_path: str, output_path: str | None = None) -> str:
     )
 
     bgr = cv2.imread(input_path)
+
     if bgr is None:
         raise FileNotFoundError(f"Cannot load: {input_path}")
     h, w = bgr.shape[:2]
@@ -196,6 +197,14 @@ def isolate_leaf(input_path: str, output_path: str | None = None) -> str:
         mask = extract_cluttered(bgr)
 
     feather_and_save(bgr, mask, output_path, preview_path)
+
+    preview = Image.open(preview_path)
+    preview.convert("RGB")
+    preview.thumbnail((600,600), Image.LANCZOS)
+
+    preview.save(preview_path)
+    print(preview.size)
+
     return preview_path
 
 
