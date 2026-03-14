@@ -17,7 +17,7 @@ print("hello, imports work!")
 # -----------------------------
 
 
-image_fileName = 'leaf4.png'  # Replace with your leaf image filename
+image_fileName = 'leaf5.png'  # Replace with your leaf image filename
 image_path = f'SimpleLeafVeinExtraction/leavesImages/{image_fileName}'
 
 if not os.path.exists(image_path):
@@ -43,144 +43,98 @@ enhanced = clahe.apply(leafImage)
 # cv2.destroyAllWindows() 
 
 
-# -----------------------------
-# 3. Detect veins (Frangi)
-# -----------------------------
-from skimage import img_as_float
-
-img_float = img_as_float(enhanced)
-
-# Auto-detect vein polarity from leaf pixels only
-_, rough_mask = cv2.threshold(leafImage, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-# If mask covers >80% of image, leaf is dark on light background
-if np.sum(rough_mask > 0) > 0.8 * leafImage.size:
-    rough_mask = cv2.bitwise_not(rough_mask)
-mean_val = img_float[rough_mask > 0].mean() if np.sum(rough_mask > 0) > 0 else img_float.mean()
-black_ridges = mean_val > 0.5
-print(f"Mean leaf brightness: {mean_val:.2f} -> black_ridges={black_ridges}")
-
-vein_response = frangi(img_float, sigmas=range(1, 4, 1), black_ridges=black_ridges)
-vein_norm = vein_response / (vein_response.max() + 1e-10)
-
-# Threshold on NON-ZERO pixels only (Frangi is extremely skewed)
-nonzero_vals = vein_norm[vein_norm > 0]
-print(f"Non-zero pixels: {len(nonzero_vals)} ({100*len(nonzero_vals)/vein_norm.size:.1f}% of image)")
-
-# Use percentile of non-zero values instead of Otsu
-# Top X% of non-zero responses = veins
-top_percent = 10  # keep top 10% of vein responses
-auto_thresh = np.percentile(nonzero_vals, 100 - top_percent)
-print(f"Auto threshold (top {top_percent}% of nonzero): {auto_thresh:.3f}")
-
-vein_binary = (vein_norm > auto_thresh).astype(np.uint8) * 255
-
-cv2.imshow("Frangi Veins", vein_binary)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
-
-# -----------------------------
-# 4. Clean edges (morphology)
-# -----------------------------
-def estimate_morph_params(vein_binary):
-    """Estimate close kernel size and iterations from gap sizes in the image."""
+def get_boundary(image):
+    if isinstance(image, str):
+        img = cv2.imread(image, cv2.IMREAD_GRAYSCALE)
+    else:
+        img = image.copy()
     
-    # Find all white blobs (vein segments)
+    # Use Otsu to separate leaf from background
+    _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # If leaf is dark on white background, invert
+    if np.sum(binary > 0) > 0.5 * binary.size:
+        binary = cv2.bitwise_not(binary)
+    
+    # Find outer contour only
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return np.array([])
+    
+    leaf_contour = max(contours, key=cv2.contourArea)
+    
+    # Draw just the outline
+    boundary_img = np.zeros_like(img)
+    cv2.drawContours(boundary_img, [leaf_contour], -1, 255, thickness=3)
+    
+    # Return as point array
+    pts = np.column_stack(np.where(boundary_img > 0))
+    print(f"Boundary points: {len(pts)}")
+    return pts
+
+
+
+def region_grow_from_top(vein_img):
+    """Get largest connected component that contains the topmost significant pixel."""
+    
+    # Label all connected components
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
-        vein_binary, connectivity=8
+        vein_img, connectivity=8
     )
     
-    # Remove background (label 0)
-    centroids = centroids[1:]
-    stats = stats[1:]
+    if num_labels <= 1:
+        return np.zeros_like(vein_img)
     
-    if len(centroids) < 2:
-        return 5, 2  # fallback defaults
+    # Find largest component (skip background label 0)
+    largest_label = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
+    print(f"Largest component area: {stats[largest_label, cv2.CC_STAT_AREA]} px")
+    print(f"Total components: {num_labels - 1}")
     
-    # Measure distances between nearest blob pairs
-    from scipy.spatial import KDTree
-    tree = KDTree(centroids)
-    # For each blob, find its nearest neighbor distance
-    dists, _ = tree.query(centroids, k=2)  # k=2: itself + nearest
-    nearest_dists = dists[:, 1]  # exclude self (distance=0)
+    main_vein = np.where(labels == largest_label, 255, 0).astype(np.uint8)
+    return main_vein
+
+def extract_veins(leafImage, enhanced):
+    # Step 1: Canny edges
+    blurred = cv2.GaussianBlur(enhanced, (3,3), 0)
+    edges_canny = cv2.Canny(blurred, 50, 150)
     
-    median_gap = np.median(nearest_dists)
-    p75_gap    = np.percentile(nearest_dists, 75)
-    
-    print(f"Median gap between blobs: {median_gap:.1f}px")
-    print(f"75th percentile gap:      {p75_gap:.1f}px")
-    
-    # Kernel should be ~half the gap size (morphology works from both sides)
-    kernel_size = max(3, int(p75_gap / 2))
-    if kernel_size % 2 == 0:
-        kernel_size += 1  # must be odd
-    
-    # Iterations: larger gaps need more passes
-    iterations = max(1, int(median_gap / kernel_size) + 1)
-    iterations = min(iterations, 6)  # cap at 6 to avoid over-merging
-    
-    print(f"Inferred kernel_size: {kernel_size}, iterations: {iterations}")
-    return kernel_size, iterations
-
-
-# Use it:
-k, iters = estimate_morph_params(vein_binary)
-
-kernel_close = np.ones((k, k), np.uint8)
-kernel_open  = np.ones((3, 3), np.uint8)
-
-clean = cv2.morphologyEx(vein_binary, cv2.MORPH_CLOSE, kernel_close, iterations=iters)  # use inferred iters, not hardcoded 1!
-clean = cv2.morphologyEx(clean,       cv2.MORPH_OPEN,  kernel_open,  iterations=1)
-
-cv2.imshow("Clean after morphology (before mask)", clean)  # check HERE before masking
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
-
-# -----------------------------
-# 4b. Remove leaf boundary
-# -----------------------------
-_, leaf_thresh = cv2.threshold(leafImage, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-# Find all contours and pick largest
-contours, _ = cv2.findContours(leaf_thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-contours_inv, _ = cv2.findContours(cv2.bitwise_not(leaf_thresh), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-# Pick whichever threshold gives a contour that's NOT the whole image border
-best_contour = None
-best_area = 0
-image_area = leafImage.shape[0] * leafImage.shape[1]
-
-for c in list(contours) + list(contours_inv):
-    area = cv2.contourArea(c)
-    # Valid leaf contour: >5% and <95% of image area
-    if 0.05 * image_area < area < 0.95 * image_area:
-        if area > best_area:
-            best_area = area
-            best_contour = c
-
-if best_contour is None:
-    print("WARNING: Could not find leaf contour - skipping mask")
-    clean_masked = clean
-else:
-    mask = np.zeros_like(clean)
-    cv2.drawContours(mask, [best_contour], -1, 255, thickness=-1)
-    mask = cv2.erode(mask, np.ones((7,7), np.uint8))
-    print(f"Leaf mask area: {best_area} px ({100*best_area/image_area:.1f}% of image)")
-    cv2.imshow("Leaf Mask", mask)
+    cv2.imshow("Canny Edges", edges_canny)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    clean = cv2.bitwise_and(clean, mask)
+    
+    # Step 2: Leaf boundary as barrier
+    boundary_pts = get_boundary(leafImage)
+    canvas_boundary = np.zeros(edges_canny.shape[:2], dtype=np.uint8)
+    for pt in boundary_pts:
+        r, c = int(pt[0]), int(pt[1])
+        if 0 <= r < canvas_boundary.shape[0] and 0 <= c < canvas_boundary.shape[1]:
+            canvas_boundary[r, c] = 255
+    kernel_boundary = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    canvas_boundary = cv2.dilate(canvas_boundary, kernel_boundary)
 
-cv2.imshow("Clean before skeleton", clean)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    # Step 3: Veins = canny edges inside leaf, minus boundary
+    _, leaf_binary = cv2.threshold(leafImage, 0, 255,
+                                   cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if np.sum(leaf_binary > 0) > 0.5 * leaf_binary.size:
+        leaf_binary = cv2.bitwise_not(leaf_binary)
 
-# ------------------------------------------------------------
-# 5. Skeletonize
-# -----------------------------
-skeleton = skeletonize(clean > 0).astype(np.uint8)
-cv2.imshow("Skeletonized Veins", skeleton * 255)
+    vein = cv2.bitwise_and(edges_canny, cv2.bitwise_not(canvas_boundary))
+    vein = cv2.bitwise_and(vein, leaf_binary)
+
+    # show vein and print pixel count
+    print(f"Vein white pixels: {np.sum(vein > 0)}")
+    cv2.imshow("Veins raw", vein)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    return vein, vein  # return vein for both
+
+
+vein, main_vein = extract_veins(leafImage, enhanced)
+
+# Skeletonize main vein
+skeleton = skeletonize(main_vein > 0).astype(np.uint8)
+cv2.imshow("Skeleton", skeleton * 255)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
@@ -189,11 +143,24 @@ cv2.destroyAllWindows()
 # ----------------------------
 
 G = sknw.build_sknw(skeleton > 0)
-print(f"Raw: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+raw_nodes = G.number_of_nodes()
+print(f"Raw nodes: {raw_nodes}")
+
 
 # ---------------------------------------------------------------------
 # 7. Clean graph
 # -----------------------------
+
+# Aggressive small spurious branches removal scaled to image size
+img_diagonal = np.sqrt(leafImage.shape[0]**2 + leafImage.shape[1]**2)
+min_length = int(img_diagonal * 0.015)  # 2% of diagonal
+print(f"min_length: {min_length}")
+
+short = [(s, e) for s, e in G.edges() if len(G[s][e]['pts']) < min_length]
+G.remove_edges_from(short)
+G.remove_nodes_from(list(nx.isolates(G)))
+print(f"After pruning: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+print(f"Components: {nx.number_connected_components(G)}")
 
 # Use Kruskal-like approach to connect components by adding edges between nearest nodes across components, 
 # until we have a single connected component. 
