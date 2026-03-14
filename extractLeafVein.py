@@ -176,7 +176,7 @@ def build_graph(leafImage, vein, visualize=True, save_path='graph_overlay.png'):
 
 
 if __name__ == "__main__":
-    image_fileName = 'leaf2.png'
+    image_fileName = 'leaf3.png'
     image_path = f'leavesImages/{image_fileName}'
 
     if not os.path.exists(image_path):
