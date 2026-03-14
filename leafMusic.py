@@ -18,7 +18,7 @@ print("hello, imports work!")
 # -----------------------------
 
 
-image_fileName = 'leaf2.png'  # Replace with your leaf image filename
+image_fileName = 'leaf6.png'  # Replace with your leaf image filename
 image_path = f'leavesImages/{image_fileName}'
 
 if not os.path.exists(image_path):
@@ -44,36 +44,41 @@ enhanced = clahe.apply(leafImage)
 # cv2.destroyAllWindows() 
 
 
-def get_boundary(image):
+def get_boundary_and_mask(image):
+    """Returns both boundary points AND filled leaf mask."""
     if isinstance(image, str):
-        img = cv2.imread(image, cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(image)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     else:
-        img = image.copy()
+        gray = image.copy()
+        img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     
-    # Use Otsu to separate leaf from background
-    _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # GrabCut insteaf of Otsu - more robust to complex backgrounds, but can fail if leaf is very small or faint.
+    print("Using GrabCut")
+    mask = np.zeros(gray.shape[:2], np.uint8)
+    h, w = gray.shape
+    margin = int(min(h, w) * 0.1)
+    rect = (margin, margin, w - 2*margin, h - 2*margin)
+    bgd_model = np.zeros((1, 65), np.float64)
+    fgd_model = np.zeros((1, 65), np.float64)
+    cv2.grabCut(img, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
     
-    # If leaf is dark on white background, invert
-    if np.sum(binary > 0) > 0.5 * binary.size:
-        binary = cv2.bitwise_not(binary)
+    fg_mask = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
     
-    # Find outer contour only
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
-        return np.array([])
+        print("WARNING: GrabCut failed - using full image")
+        return np.array([]), np.ones_like(gray) * 255
     
-    leaf_contour = max(contours, key=cv2.contourArea)
+    largest = max(contours, key=cv2.contourArea)
+    boundary_img = np.zeros_like(gray)
+    cv2.drawContours(boundary_img, [largest], -1, 255, thickness=3)
+    leaf_mask = np.zeros_like(gray)
+    cv2.drawContours(leaf_mask, [largest], -1, 255, thickness=-1)  # filled mask
     
-    # Draw just the outline
-    boundary_img = np.zeros_like(img)
-    cv2.drawContours(boundary_img, [leaf_contour], -1, 255, thickness=3)
-    
-    # Return as point array
     pts = np.column_stack(np.where(boundary_img > 0))
-    print(f"Boundary points: {len(pts)}")
-    return pts
-
-
+    print(f"GrabCut boundary: {len(pts)} points")
+    return pts, leaf_mask
 
 def region_grow_from_top(vein_img):
     """Get largest connected component that contains the topmost significant pixel."""
@@ -98,13 +103,25 @@ def extract_veins(leafImage, enhanced):
     # Step 1: Canny edges
     blurred = cv2.GaussianBlur(enhanced, (3,3), 0)
     edges_canny = cv2.Canny(blurred, 50, 150)
-    
-    cv2.imshow("Canny Edges", edges_canny)
+
+    # Step 2: Leaf boundary + mask (single call, works for both simple and complex bg)
+    boundary_pts, leaf_mask = get_boundary_and_mask(leafImage)
+
+    # Show boundary and mask for verification
+    debug = cv2.cvtColor(leafImage, cv2.COLOR_GRAY2BGR)
+    for pt in boundary_pts:
+        r, c = int(pt[0]), int(pt[1])
+        if 0 <= r < debug.shape[0] and 0 <= c < debug.shape[1]:
+            debug[r, c] = [0, 0, 255]
+    cv2.imshow("Leaf Boundary", debug)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    
-    # Step 2: Leaf boundary as barrier
-    boundary_pts = get_boundary(leafImage)
+
+    cv2.imshow("Leaf Mask", leaf_mask)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # Step 3: Build boundary canvas
     canvas_boundary = np.zeros(edges_canny.shape[:2], dtype=np.uint8)
     for pt in boundary_pts:
         r, c = int(pt[0]), int(pt[1])
@@ -113,22 +130,15 @@ def extract_veins(leafImage, enhanced):
     kernel_boundary = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     canvas_boundary = cv2.dilate(canvas_boundary, kernel_boundary)
 
-    # Step 3: Veins = canny edges inside leaf, minus boundary
-    _, leaf_binary = cv2.threshold(leafImage, 0, 255,
-                                   cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if np.sum(leaf_binary > 0) > 0.5 * leaf_binary.size:
-        leaf_binary = cv2.bitwise_not(leaf_binary)
-
+    # Step 4: Veins = canny inside leaf mask, minus boundary
     vein = cv2.bitwise_and(edges_canny, cv2.bitwise_not(canvas_boundary))
-    vein = cv2.bitwise_and(vein, leaf_binary)
+    vein = cv2.bitwise_and(vein, leaf_mask)  # use GrabCut mask, not Otsu
 
-    # show vein and print pixel count
-    print(f"Vein white pixels: {np.sum(vein > 0)}")
     cv2.imshow("Veins raw", vein)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-    return vein, vein  # return vein for both
+    return vein, vein
 
 
 vein, main_vein = extract_veins(leafImage, enhanced)
