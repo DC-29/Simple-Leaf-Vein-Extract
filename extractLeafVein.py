@@ -6,6 +6,7 @@ from skimage.morphology import skeletonize
 import matplotlib.pyplot as plt
 from scipy.spatial import KDTree
 import sknw
+from isolate_leaf import isolate_leaf
 
 
 def get_boundary_and_mask(image):
@@ -16,23 +17,6 @@ def get_boundary_and_mask(image):
     else:
         gray = image.copy()
         img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-
-    # Try Otsu first
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if np.sum(binary > 0) > 0.5 * binary.size:
-        binary = cv2.bitwise_not(binary)
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        largest = max(contours, key=cv2.contourArea)
-        area_ratio = cv2.contourArea(largest) / (gray.shape[0] * gray.shape[1])
-        if 0.20 < area_ratio < 0.90:
-            boundary_img = np.zeros_like(gray)
-            cv2.drawContours(boundary_img, [largest], -1, 255, thickness=3)
-            leaf_mask = np.zeros_like(gray)
-            cv2.drawContours(leaf_mask, [largest], -1, 255, thickness=-1)
-            pts = np.column_stack(np.where(boundary_img > 0))
-            print(f"Otsu boundary: {len(pts)} points, area={area_ratio:.2f}")
-            return pts, leaf_mask
 
     # GrabCut fallback for complex backgrounds
     print("Using GrabCut")
@@ -176,14 +160,14 @@ def build_graph(leafImage, vein, visualize=True, save_path='graph_overlay.png'):
 
 
 if __name__ == "__main__":
-    image_fileName = 'leaf3.png'
+    image_fileName = 'leaf13.png'
     image_path = f'leavesImages/{image_fileName}'
 
     if not os.path.exists(image_path):
         print(f"Error: '{image_path}' not found.")
         exit(1)
 
-    leafImage = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    leafImage = cv2.imread(isolate_leaf(image_path), cv2.IMREAD_GRAYSCALE)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(leafImage)
 
