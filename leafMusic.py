@@ -17,8 +17,8 @@ print("hello, imports work!")
 # -----------------------------
 
 
-image_fileName = 'leaf5.png'  # Replace with your leaf image filename
-image_path = f'SimpleLeafVeinExtraction/leavesImages/{image_fileName}'
+image_fileName = 'leaf4.png'  # Replace with your leaf image filename
+image_path = f'leavesImages/{image_fileName}'
 
 if not os.path.exists(image_path):
     print(f"Error: Image file '{image_path}' not found.")
