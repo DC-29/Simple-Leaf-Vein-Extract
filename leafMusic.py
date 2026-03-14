@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from skimage.filters import frangi
 from scipy.spatial import KDTree
 import sknw
+import isolate_leaf
 
 
 print("hello, imports work!")
@@ -17,15 +18,15 @@ print("hello, imports work!")
 # -----------------------------
 
 
-image_fileName = 'leaf8.png'  # Replace with your leaf image filename
-image_path = f'SimpleLeafVeinExtraction/leavesImages/{image_fileName}'
+image_fileName = 'leaf2.png'  # Replace with your leaf image filename
+image_path = f'leavesImages/{image_fileName}'
 
 if not os.path.exists(image_path):
     print(f"Error: Image file '{image_path}' not found.")
     exit(1)
 
 print("Leaf image loaded successfully!")
-leafImage = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+leafImage = cv2.imread(isolate_leaf.isolate_leaf(image_path), cv2.IMREAD_GRAYSCALE)
 # Display the image in a window
 # cv2.imshow("Loaded Image", leafImage) 
 # cv2.waitKey(0)
