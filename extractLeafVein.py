@@ -17,22 +17,22 @@ def get_boundary_and_mask(image):
         gray = image.copy()
         img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
-    # Try Otsu first
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if np.sum(binary > 0) > 0.5 * binary.size:
-        binary = cv2.bitwise_not(binary)
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        largest = max(contours, key=cv2.contourArea)
-        area_ratio = cv2.contourArea(largest) / (gray.shape[0] * gray.shape[1])
-        if 0.20 < area_ratio < 0.90:
-            boundary_img = np.zeros_like(gray)
-            cv2.drawContours(boundary_img, [largest], -1, 255, thickness=3)
-            leaf_mask = np.zeros_like(gray)
-            cv2.drawContours(leaf_mask, [largest], -1, 255, thickness=-1)
-            pts = np.column_stack(np.where(boundary_img > 0))
-            print(f"Otsu boundary: {len(pts)} points, area={area_ratio:.2f}")
-            return pts, leaf_mask
+    # # Try Otsu first
+    # _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # if np.sum(binary > 0) > 0.5 * binary.size:
+    #     binary = cv2.bitwise_not(binary)
+    # contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # if contours:
+    #     largest = max(contours, key=cv2.contourArea)
+    #     area_ratio = cv2.contourArea(largest) / (gray.shape[0] * gray.shape[1])
+    #     if 0.20 < area_ratio < 0.90:
+    #         boundary_img = np.zeros_like(gray)
+    #         cv2.drawContours(boundary_img, [largest], -1, 255, thickness=3)
+    #         leaf_mask = np.zeros_like(gray)
+    #         cv2.drawContours(leaf_mask, [largest], -1, 255, thickness=-1)
+    #         pts = np.column_stack(np.where(boundary_img > 0))
+    #         print(f"Otsu boundary: {len(pts)} points, area={area_ratio:.2f}")
+    #         return pts, leaf_mask
 
     # GrabCut fallback for complex backgrounds
     print("Using GrabCut")
@@ -233,7 +233,7 @@ def find_main_vein_endpoints(G, leafImage):
     plt.tight_layout()
     plt.savefig('main_vein_endpoints.png', dpi=150)
     plt.show()
-
+    
     return top_pt, bottom_pt
 
 if __name__ == "__main__":

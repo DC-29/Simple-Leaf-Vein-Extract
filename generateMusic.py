@@ -128,5 +128,6 @@ if __name__ == "__main__":
 
     vein = extract_veins(leafImage, enhanced)
     G = build_graph(leafImage, vein, visualize=False)
+    print(G)
 
     graph_to_midi(G, leafImage, output_file='leaf_music.mid')
