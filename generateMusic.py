@@ -7,6 +7,7 @@ from mido import MidiFile, MidiTrack, Message
 from extractLeafVein import extract_veins, build_graph
 import argparse
 from isolate_leaf import isolate_leaf
+import time
 
 
 def graph_to_midi(G, leafImage, output_file='leaf_music.mid'):
@@ -119,7 +120,7 @@ if __name__ == "__main__":
     image_fileName = args.image
 
     # image_fileName = 'leaf3.png'
-
+    start_time = time.time()
     image_path = f'leavesImages/{image_fileName}'
 
     if not os.path.exists(image_path):
@@ -135,3 +136,5 @@ if __name__ == "__main__":
     print(G)
 
     graph_to_midi(G, leafImage, output_file='leaf_music.mid')
+    end_time = time.time()
+    print(f"Time taken to convert: {end_time - start_time}")
