@@ -5,6 +5,8 @@ import random
 import numpy as np
 from mido import MidiFile, MidiTrack, Message
 from extractLeafVein import extract_veins, build_graph
+import argparse
+from isolate_leaf import isolate_leaf
 
 
 def graph_to_midi(G, leafImage, output_file='leaf_music.mid'):
@@ -111,18 +113,25 @@ def graph_to_midi(G, leafImage, output_file='leaf_music.mid'):
 
 
 if __name__ == "__main__":
-    image_fileName = 'leaf1.png'
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image")
+    args = parser.parse_args()
+    image_fileName = args.image
+
+    # image_fileName = 'leaf3.png'
+
     image_path = f'leavesImages/{image_fileName}'
 
     if not os.path.exists(image_path):
         print(f"Error: '{image_path}' not found.")
         exit(1)
 
-    leafImage = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    leafImage = cv2.imread(isolate_leaf(image_path), cv2.IMREAD_GRAYSCALE)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(leafImage)
 
     vein = extract_veins(leafImage, enhanced)
     G = build_graph(leafImage, vein, visualize=False)
+    print(G)
 
     graph_to_midi(G, leafImage, output_file='leaf_music.mid')
