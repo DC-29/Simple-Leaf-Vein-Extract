@@ -575,7 +575,7 @@ if __name__ == "__main__":
     import cv2
     import os
 
-    image_fileName = 'leaf10.png'
+    image_fileName = 'leaf13.png'
     image_path = f'leavesImages/{image_fileName}'
 
     if not os.path.exists(image_path):
