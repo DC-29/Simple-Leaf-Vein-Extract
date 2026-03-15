@@ -10,7 +10,7 @@ Endpoints:
   GET  /preview/<id>- Get vein preview image by session ID
 
 Install:
-  pip install flask flask-cors opencv-python scikit-image networkx scipy mido sknw
+  pip install flask flask-cors mido sknw
 
 Run:
   python app.py
@@ -29,7 +29,8 @@ import networkx as nx
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
-from generateGraph import extract_veins, build_graph
+from extractLeafVein import extract_veins, build_graph
+from isolate_leaf import isolate_leaf
 
 # ----------------------------------------------
 # App setup
@@ -108,25 +109,11 @@ def generate_preview(leafImage, G):
 def health():
     return jsonify({'status': 'ok', 'message': 'Leaf Vein API is running'})
 
-
 @app.route('/process', methods=['POST'])
 def process():
-    """
-    POST /process
-    Body: multipart/form-data with field 'image' (jpg/png file)
-    Returns JSON:
-    {
-      session_id: str,
-      graph: { nodes, edges, img_width, img_height },
-      preview_base64: str,       # base64 PNG of vein overlay
-      audio_url: str,            # GET /audio/<session_id>
-      stats: { nodes, edges, processing_time_s }
-    }
-    """
     import time
     t0 = time.time()
 
-    # ── Validate input ──
     if 'image' not in request.files:
         return jsonify({'error': 'No image field in request'}), 400
 
@@ -135,15 +122,15 @@ def process():
         return jsonify({'error': 'Empty filename'}), 400
 
     try:
-        # ── Save uploaded image ──
         session_id  = str(uuid.uuid4())
         img_path    = os.path.join(UPLOAD_FOLDER, f'{session_id}_input.png')
-
+        midi_path   = os.path.join(UPLOAD_FOLDER, f'{session_id}.mid')
+        wav_path    = os.path.join(UPLOAD_FOLDER, f'{session_id}.wav')
 
         file.save(img_path)
 
         # ── Load + enhance ──
-        leafImage = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        leafImage = cv2.imread(isolate_leaf(img_path), cv2.IMREAD_GRAYSCALE)
         if leafImage is None:
             return jsonify({'error': 'Could not read image'}), 400
 
@@ -159,29 +146,45 @@ def process():
 
         img_h, img_w = leafImage.shape
 
+        # ── Generate MIDI ──
+        from extractLeafVein import find_main_vein_endpoints
+        from generateRhythm import generate_leaf_midi
+        from music import export_midi_to_wav
 
-        # ── Serialize graph for mobile ──
-        graph_data = graph_to_json(G, img_h, img_w)
+        top, bottom = find_main_vein_endpoints(G, leafImage)
+        generate_leaf_midi(G, top, bottom, output_path=midi_path)
 
-        # ── Vein preview image ──
+        # ── Render to WAV ──
+        export_midi_to_wav(
+            midi_path=midi_path,
+            output_path=wav_path,
+            soundfont_path=os.path.abspath("FluidR3 GM.sf2"),
+            apply_eq_processing=True,
+        )
+
+        # ── Serialize graph ──
+        graph_data  = graph_to_json(G, img_h, img_w)
         preview_b64 = generate_preview(leafImage, G)
 
-        # ── Cache session ──
         sessions[session_id] = {
-            'graph':    graph_data,
-            'preview':  preview_b64,
+            'graph':   graph_data,
+            'preview': preview_b64,
         }
+
+        # ── Return audio as base64 ──
+        with open(wav_path, 'rb') as f:
+            audio_b64 = base64.b64encode(f.read()).decode('utf-8')
 
         elapsed = round(time.time() - t0, 2)
 
         return jsonify({
-            'session_id':     session_id,
-            'graph':          graph_data,
-            'preview_base64': preview_b64,
+            'session_id':   session_id,
+            'graph':        graph_data,
+            'audio_base64': audio_b64,
             'stats': {
-                'nodes':              G.number_of_nodes(),
-                'edges':              G.number_of_edges(),
-                'processing_time_s':  elapsed,
+                'nodes':             G.number_of_nodes(),
+                'edges':             G.number_of_edges(),
+                'processing_time_s': elapsed,
             }
         })
 

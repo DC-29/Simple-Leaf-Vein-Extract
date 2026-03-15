@@ -222,7 +222,7 @@ def find_main_vein_endpoints(G, leafImage, verbose=False):
     return top_pt, bottom_pt
 
 if __name__ == "__main__":
-    image_fileName = 'leaf12.png'
+    image_fileName = 'rex.png'
     image_path = f'leavesImages/{image_fileName}'
 
     if not os.path.exists(image_path):
