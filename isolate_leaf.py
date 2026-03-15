@@ -208,14 +208,14 @@ def isolate_leaf(input_path: str, output_path: str | None = None) -> str:
     return preview_path
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python extract_foreground.py <input_image> [output_image]")
-        sys.exit(1)
+# if __name__ == "__main__":
+#     if len(sys.argv) < 2:
+#         print("Usage: python extract_foreground.py <input_image> [output_image]")
+#         sys.exit(1)
 
-    print(
-        isolate_leaf(
-            sys.argv[1],
-            sys.argv[2] if len(sys.argv) > 2 else None    
-        )
-    )
+#     print(
+#         isolate_leaf(
+#             sys.argv[1],
+#             sys.argv[2] if len(sys.argv) > 2 else None    
+#         )
+#     )

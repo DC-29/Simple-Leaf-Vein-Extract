@@ -220,20 +220,3 @@ def find_main_vein_endpoints(G, leafImage, verbose=False):
         plt.show()
     
     return top_pt, bottom_pt
-
-if __name__ == "__main__":
-    image_fileName = 'leaf12.png'
-    image_path = f'leavesImages/{image_fileName}'
-
-    if not os.path.exists(image_path):
-        print(f"Error: '{image_path}' not found.")
-        exit(1)
-
-    leafImage = cv2.imread(isolate_leaf(image_path), cv2.IMREAD_GRAYSCALE)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(leafImage)
-
-    vein = extract_veins(leafImage, enhanced)
-    G = build_graph(leafImage, vein, visualize=False)
-
-    print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")

@@ -2,6 +2,9 @@ import modal
 import io
 import os
 import base64
+import sys
+
+sys.path.insert(0, "/app")
 
 # ─── Modal app + image ────────────────────────────────────────────────────────
 
@@ -67,13 +70,11 @@ def generate_from_image(item: dict) -> dict:
         "duration_seconds": 12.4
     }
     """
-    import sys
     import tempfile
     import subprocess
     import numpy as np
     import cv2
 
-    sys.path.insert(0, "/app")
     from generateRythm import generate_leaf_midi
     from extractLeafVein import find_main_vein_endpoints, build_graph, extract_veins
 
