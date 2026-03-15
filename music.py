@@ -72,11 +72,11 @@ def apply_eq(input_wav: str, output_wav: str) -> bool:
     cmd = [
         "sox", input_wav, output_wav,
 
-        # ── EQ ──────────────────────────────────────────────────────────────
-        "equalizer", "200",   "0.5q", "+2",    # warm low-mid boost
-        "equalizer", "3000",  "1.0q", "-3",    # cut harsh piano attack
-        "equalizer", "8000",  "0.7q", "-4",    # soften high mids
-        "equalizer", "12000", "0.5q", "-6",    # tame brittle top end
+        "equalizer", "300",   "0.7q", "+3",    # warmth boost
+"equalizer", "2000",  "1.0q", "-5",    # cut harshness (presence range)
+"equalizer", "4000",  "1.0q", "-6",    # cut attack edge (main harsh zone)
+"equalizer", "8000",  "0.7q", "-6",    # soften high mids
+"equalizer", "12000", "0.5q", "-9",    # heavily tame brittle top end
 
         # ── Reverb ──────────────────────────────────────────────────────────
         # reverb [reverberance] [hf-damping] [room-scale] [stereo-depth]
