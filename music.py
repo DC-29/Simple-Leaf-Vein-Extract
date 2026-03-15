@@ -1,155 +1,170 @@
-import modal
-import io
 import os
-import base64
+import subprocess
 
-# ─── Modal app + image ────────────────────────────────────────────────────────
 
-app = modal.App("green-music")
+# ─── Config ───────────────────────────────────────────────────────────────────
 
-# Build a container image with all dependencies pre-installed
-image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .apt_install(
+# FluidR3_GM: free, warm, well-balanced General MIDI soundfont
+SOUNDFONT_PATH = os.path.abspath("FluidR3_GM.sf2")
+SAMPLE_RATE    = 44100
+
+
+
+def check_tool(name: str) -> bool:
+    """Return True if a CLI tool is available on PATH."""
+    try:
+        subprocess.run([name, "--version"], capture_output=True, check=False)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def render_midi(midi_path: str, wav_path: str, soundfont_path: str,
+                sample_rate: int = SAMPLE_RATE, gain: float = 0.8) -> bool:
+    """
+    Render a MIDI file to WAV using fluidsynth.
+    gain: master volume multiplier (0.0–1.0, default 0.8 avoids clipping)
+    Returns True on success.
+    """
+    if not check_tool("fluidsynth"):
+        print("[export] ERROR: fluidsynth not found. Install with:")
+        print("  macOS:  brew install fluid-synth")
+        print("  Ubuntu: sudo apt install fluidsynth")
+        return False
+
+    cmd = [
         "fluidsynth",
-        "libfluidsynth-dev",
-        "fluid-soundfont-gm",
-        "wget",
-    )
-    .pip_install(
-        "fastapi[standard]",
-        "midiutil",
-        "networkx",
-        "numpy",
-        "scikit-image",
-        "sknw",
-        "opencv-python-headless",
-        "matplotlib",
-        "scipy",
-        "Pillow",
-    )
-    .add_local_file("generateRythm.py",   remote_path="/app/generateRythm.py")
-    .add_local_file("extractLeafVein.py", remote_path="/app/extractLeafVein.py")
-    .add_local_file("isolate_leaf.py",    remote_path="/app/isolate_leaf.py")
-    .add_local_file("music.py",           remote_path="/app/music.py")
-)
+        "-ni",                      # non-interactive, no MIDI driver
+        "-g", str(gain),            # master gain
+        "-F", wav_path,             # output WAV
+        "-r", str(sample_rate),     # sample rate
+        soundfont_path,             # soundfont
+        midi_path,                  # MIDI input
+    ]
 
-# Soundfont path inside the container (installed by fluid-soundfont-gm)
-SOUNDFONT = "/usr/share/sounds/sf2/FluidR3_GM.sf2"
+    print(f"[export] Rendering MIDI → WAV...")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        print(f"[export] fluidsynth error:\n{result.stderr}")
+        return False
+
+    print(f"[export] Rendered to: {wav_path}")
+    return True
 
 
-# ─── Endpoint ─────────────────────────────────────────────────────────────────
-
-@app.function(
-    image=image,
-    timeout=120,
-    memory=1024,
-)
-@modal.web_endpoint(method="POST")
-def generate_from_image(item: dict) -> dict:
+def apply_eq(input_wav: str, output_wav: str) -> bool:
     """
-    Receive a base64-encoded leaf image, run the full pipeline,
-    and return a base64-encoded WAV file.
-
-    Request body:
-    {
-        "image_b64": "<base64 encoded PNG/JPG>",
-        "scale_name": "major" | "minor" | null,   // optional
-        "root_note": 60                            // optional MIDI note
-    }
-
-    Response:
-    {
-        "wav_b64": "<base64 encoded WAV>",
-        "bpm": 45,
-        "scale": "minor",
-        "root_note": 60,
-        "duration_seconds": 12.4
-    }
+    Apply EQ and reverb via sox to warm up the sound:
+      - High shelf cut  at 8kHz  (-4dB)  : tame harshness
+      - High shelf cut  at 12kHz (-6dB)  : remove brittle top end
+      - Low shelf boost at 200Hz (+2dB)  : add warmth
+      - Mid cut        at 3kHz  (-3dB)  : reduce piano attack edge
+      - Reverb                           : small room, subtle
+    Returns True on success, False if sox not available (wav unchanged).
     """
-    import sys
-    import tempfile
-    import subprocess
-    import numpy as np
-    import cv2
+    if not check_tool("sox"):
+        print("[export] sox not found — skipping EQ.")
+        print("  macOS:  brew install sox")
+        print("  Ubuntu: sudo apt install sox")
+        return False
 
-    sys.path.insert(0, "/app")
-    from generateRythm import generate_leaf_midi
-    from extractLeafVein import find_main_vein_endpoints, build_graph, extract_veins
+    cmd = [
+        "sox", input_wav, output_wav,
 
-    # ── 1. Decode image ──────────────────────────────────────────────────────
-    image_bytes = base64.b64decode(item["image_b64"])
-    image_array = np.frombuffer(image_bytes, dtype=np.uint8)
-    leaf_image  = cv2.imdecode(image_array, cv2.IMREAD_GRAYSCALE)
+        "equalizer", "300",   "0.7q", "+3",    # warmth boost
+"equalizer", "2000",  "1.0q", "-5",    # cut harshness (presence range)
+"equalizer", "4000",  "1.0q", "-6",    # cut attack edge (main harsh zone)
+"equalizer", "8000",  "0.7q", "-6",    # soften high mids
+"equalizer", "12000", "0.5q", "-9",    # heavily tame brittle top end
 
-    if leaf_image is None:
-        return {"error": "Could not decode image"}
+        # ── Reverb ──────────────────────────────────────────────────────────
+        # reverb [reverberance] [hf-damping] [room-scale] [stereo-depth]
+        #        [pre-delay ms] [wet-only]
+        "reverb", "40", "50", "30", "30", "10",
 
-    # ── 2. Extract vein graph ────────────────────────────────────────────────
-    clahe    = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(leaf_image)
-    vein     = extract_veins(leaf_image, enhanced)
-    G        = build_graph(leaf_image, vein)
-    top, bottom = find_main_vein_endpoints(G, leaf_image)
+        # ── Normalise to -1dB after processing ──────────────────────────────
+        "norm", "-1",
+    ]
 
-    # ── 3. Generate MIDI ─────────────────────────────────────────────────────
-    with tempfile.TemporaryDirectory() as tmp:
-        midi_path = os.path.join(tmp, "leaf.mid")
-        wav_path  = os.path.join(tmp, "leaf.wav")
+    print(f"[export] Applying EQ + reverb...")
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
-        result = generate_leaf_midi(
-            G, top, bottom,
-            output_path = midi_path,
-            scale_name  = item.get("scale_name"),
-            root_note   = item.get("root_note"),
-        )
+    if result.returncode != 0:
+        print(f"[export] sox error:\n{result.stderr}")
+        return False
 
-        # ── 4. Render MIDI → WAV with fluidsynth ─────────────────────────────
-        subprocess.run([
-            "fluidsynth",
-            "-ni",
-            "-g", "0.8",
-            "-F", wav_path,
-            "-r", "44100",
-            SOUNDFONT,
-            midi_path,
-        ], check=True, capture_output=True)
-
-        # ── 5. Encode WAV as base64 and return ───────────────────────────────
-        with open(wav_path, "rb") as f:
-            wav_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-    return {
-        "wav_b64":    wav_b64,
-        "bpm":        result["bpm"],
-        "scale":      result["scale"],
-        "root_note":  result["root_note"],
-        "total_bars": result["total_bars"],
-    }
+    print(f"[export] EQ applied → {output_wav}")
+    return True
 
 
-# ─── Local test ───────────────────────────────────────────────────────────────
+# ─── Main export function ─────────────────────────────────────────────────────
 
-@app.local_entrypoint()
-def test():
-    """Quick local test — encode a leaf image and call the endpoint."""
-    import base64
+def export_midi_to_wav(
+    midi_path: str,
+    output_path: str = None,
+    soundfont_path: str = None,
+    apply_eq_processing: bool = True,
+    sample_rate: int = SAMPLE_RATE,
+) -> str:
+    """
+    Full pipeline: MIDI → fluidsynth WAV → sox EQ → final WAV.
 
-    image_path = "leavesImages/leaf2.png"
-    with open(image_path, "rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+    Parameters
+    ----------
+    midi_path           : path to input .mid file
+    output_path         : path for final .wav (default: same name as midi)
+    soundfont_path      : path to .sf2 soundfont (auto-downloads FluidR3 if None)
+    apply_eq_processing : whether to run sox EQ/reverb pass
+    sample_rate         : audio sample rate in Hz
 
-    print("[test] Calling Modal function...")
-    response = generate_from_image.remote({"image_b64": image_b64})
+    Returns
+    -------
+    Path to the final output WAV file.
+    """
+    midi_path = os.path.abspath(midi_path)
+    if not os.path.exists(midi_path):
+        raise FileNotFoundError(f"MIDI file not found: {midi_path}")
 
-    if "error" in response:
-        print(f"[test] Error: {response['error']}")
-        return
+    # Default output path: same dir as MIDI, .wav extension
+    if output_path is None:
+        base = os.path.splitext(midi_path)[0]
+        output_path = base + ".wav"
+    output_path = os.path.abspath(output_path)
 
-    # Save returned WAV locally
-    wav_bytes = base64.b64decode(response["wav_b64"])
-    with open("test_output.wav", "wb") as f:
-        f.write(wav_bytes)
+    # Soundfont
+    soundfont_path = os.path.abspath(soundfont_path)
+    
+    # If EQ is enabled, render to a temp file first
+    if apply_eq_processing:
+        raw_wav = output_path.replace(".wav", "_raw.wav")
+    else:
+        raw_wav = output_path
 
-    print(f"[test] BPM: {response['bpm']}, Scale: {response['scale']}")
-    print(f"[test] WAV saved to test_output.wav")
+    # Step 1: fluidsynth render
+    ok = render_midi(midi_path, raw_wav, soundfont_path, sample_rate)
+    if not ok:
+        raise RuntimeError("fluidsynth render failed.")
+
+    # Step 2: sox EQ (optional)
+    if apply_eq_processing:
+        eq_ok = apply_eq(raw_wav, output_path)
+        if eq_ok:
+            os.remove(raw_wav)   # clean up raw render
+        else:
+            # sox failed or not installed — just use the raw render
+            os.rename(raw_wav, output_path)
+            print("[export] Using raw render (no EQ).")
+
+    print(f"[export] Done: {output_path}")
+    return output_path
+
+
+# ─── Example usage ────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    export_midi_to_wav(
+        midi_path    = "leaf_drums.mid",
+        output_path  = "leaf_music.wav",
+        soundfont_path=SOUNDFONT_PATH
+    )

@@ -496,7 +496,7 @@ def generate_leaf_midi(
             if beat_time >= (bar + 1) * beats_per_bar:
                 break
             note = KICK_NOTE if drum_hit_index % 2 == 0 else SNARE_NOTE
-            drum_vel = int(random.gauss(80, 8))
+            drum_vel = int(random.gauss(90, 8))
             drum_vel = max(1, min(127, drum_vel))
             midi.addNote(TR_DRUMS, CH_DRUMS, note,
                          time=beat_time, duration=0.25, volume=drum_vel)
@@ -570,33 +570,33 @@ def generate_leaf_midi(
 
 # # ─── Example usage ────────────────────────────────────────────────────────────
 
-# if __name__ == "__main__":
-#     from extractLeafVein import find_main_vein_endpoints, build_graph,extract_veins
-#     import cv2
-#     import os
+if __name__ == "__main__":
+    from extractLeafVein import find_main_vein_endpoints, build_graph,extract_veins
+    import cv2
+    import os
 
-#     image_fileName = 'leaf3.png'
-#     image_path = f'leavesImages/{image_fileName}'
+    image_fileName = 'leaf10.png'
+    image_path = f'leavesImages/{image_fileName}'
 
-#     if not os.path.exists(image_path):
-#         print(f"Error: '{image_path}' not found.")
-#         exit(1)
+    if not os.path.exists(image_path):
+        print(f"Error: '{image_path}' not found.")
+        exit(1)
 
-#     leafImage = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-#     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-#     enhanced = clahe.apply(leafImage)
+    leafImage = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(leafImage)
 
-#     vein = extract_veins(leafImage, enhanced)
-#     G = build_graph(leafImage, vein)
+    vein = extract_veins(leafImage, enhanced)
+    G = build_graph(leafImage, vein)
 
  
 
-#     n = list(G.nodes)[0]
-#     print("hey")
-#     print(G.nodes[n])
-#     print(type(G.nodes[n]['o']))
-#     print(G.nodes[n]['o'])
-#     # --- Replace with your actual getTopBottom call ---
-#     top, bottom = find_main_vein_endpoints(G,leafImage)
+    n = list(G.nodes)[0]
+    print("hey")
+    print(G.nodes[n])
+    print(type(G.nodes[n]['o']))
+    print(G.nodes[n]['o'])
+    # --- Replace with your actual getTopBottom call ---
+    top, bottom = find_main_vein_endpoints(G,leafImage)
 
-#     generate_leaf_midi(G, top, bottom, output_path="leaf_drums.mid")
+    generate_leaf_midi(G, top, bottom, output_path="leaf_drums.mid")
