@@ -161,7 +161,7 @@ def build_graph(leafImage, vein, visualize=True, save_path='graph_overlay.png'):
 # -----------------------------
 # 9. Find main vein top & bottom
 # -----------------------------
-def find_main_vein_endpoints(G, leafImage):
+def find_main_vein_endpoints(G, leafImage, verbose=False):
     """
     Find the top and bottom of the main vein by locating the two degree-1
     endpoints (tips) with the greatest Euclidean distance between them.
@@ -190,38 +190,39 @@ def find_main_vein_endpoints(G, leafImage):
             top_pt   = tip_positions[i]
             bottom_pt = tip_positions[j]
 
-    print(f"Main vein endpoint A : row={top_pt[0]:.0f},  col={top_pt[1]:.0f}")
-    print(f"Main vein endpoint B : row={bottom_pt[0]:.0f}, col={bottom_pt[1]:.0f}")
-    print(f"Euclidean distance   : {max_dist:.1f} px")
+    if verbose:
+        print(f"Main vein endpoint A : row={top_pt[0]:.0f},  col={top_pt[1]:.0f}")
+        print(f"Main vein endpoint B : row={bottom_pt[0]:.0f}, col={bottom_pt[1]:.0f}")
+        print(f"Euclidean distance   : {max_dist:.1f} px")
 
-    # ── Visualise ─────────────────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(12, 10))
-    ax.imshow(leafImage, cmap='gray')
+        # ── Visualise ─────────────────────────────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(12, 10))
+        ax.imshow(leafImage, cmap='gray')
 
-    for s, e in G.edges():
-        pts = G[s][e]['pts']
-        ax.plot(pts[:, 1], pts[:, 0], 'lime', linewidth=1.0, alpha=0.7)
+        for s, e in G.edges():
+            pts = G[s][e]['pts']
+            ax.plot(pts[:, 1], pts[:, 0], 'lime', linewidth=1.0, alpha=0.7)
 
-    ax.scatter(tip_positions[:, 1], tip_positions[:, 0],
-               c='cyan', s=15, zorder=4, label='Tips')
-    ax.scatter(top_pt[1], top_pt[0],
-               c='yellow', s=200, zorder=6, marker='*', label='Endpoint A')
-    ax.scatter(bottom_pt[1], bottom_pt[0],
-               c='red', s=200, zorder=6, marker='*', label='Endpoint B')
-    ax.plot([top_pt[1], bottom_pt[1]], [top_pt[0], bottom_pt[0]],
-            'white', linewidth=1.5, linestyle='--', alpha=0.8, label='Main axis')
+        ax.scatter(tip_positions[:, 1], tip_positions[:, 0],
+                c='cyan', s=15, zorder=4, label='Tips')
+        ax.scatter(top_pt[1], top_pt[0],
+                c='yellow', s=200, zorder=6, marker='*', label='Endpoint A')
+        ax.scatter(bottom_pt[1], bottom_pt[0],
+                c='red', s=200, zorder=6, marker='*', label='Endpoint B')
+        ax.plot([top_pt[1], bottom_pt[1]], [top_pt[0], bottom_pt[0]],
+                'white', linewidth=1.5, linestyle='--', alpha=0.8, label='Main axis')
 
-    ax.legend(loc='upper right')
-    ax.set_title(f'Main vein endpoints — furthest pair ({max_dist:.0f} px apart)')
-    ax.axis('off')
-    plt.tight_layout()
-    plt.savefig('main_vein_endpoints.png', dpi=150)
-    plt.show()
+        ax.legend(loc='upper right')
+        ax.set_title(f'Main vein endpoints — furthest pair ({max_dist:.0f} px apart)')
+        ax.axis('off')
+        plt.tight_layout()
+        plt.savefig('main_vein_endpoints.png', dpi=150)
+        plt.show()
     
     return top_pt, bottom_pt
 
 if __name__ == "__main__":
-    image_fileName = 'leaf1.png'
+    image_fileName = 'leaf12.png'
     image_path = f'leavesImages/{image_fileName}'
 
     if not os.path.exists(image_path):
@@ -233,6 +234,6 @@ if __name__ == "__main__":
     enhanced = clahe.apply(leafImage)
 
     vein = extract_veins(leafImage, enhanced)
-    G = build_graph(leafImage, vein)
+    G = build_graph(leafImage, vein, visualize=False)
 
     print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
