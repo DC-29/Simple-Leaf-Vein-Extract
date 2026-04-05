@@ -154,7 +154,7 @@ def build_graph(leafImage, vein, visualize=True, save_path='graph_overlay.png'):
         plt.tight_layout()
         plt.savefig(save_path, dpi=150)
         print(f"Graph saved to {save_path}")
-        plt.show()
+        #plt.show()
 
     return G
 
@@ -217,6 +217,6 @@ def find_main_vein_endpoints(G, leafImage, verbose=False):
         ax.axis('off')
         plt.tight_layout()
         plt.savefig('main_vein_endpoints.png', dpi=150)
-        plt.show()
+        #plt.show()
     
     return top_pt, bottom_pt

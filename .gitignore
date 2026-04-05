@@ -1,3 +1,6 @@
 leaf-extract
 __pycache__/
 FluidR3_GM.sf2
+.venv
+.vscode
+music
